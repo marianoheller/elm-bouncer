@@ -25,7 +25,7 @@ import Time
 
 g : Vec2
 g =
-    vec2 0 9.8
+    vec2 0 15
 
 
 
@@ -34,7 +34,7 @@ g =
 
 mass : Float
 mass =
-    50
+    999
 
 
 
@@ -53,9 +53,8 @@ d =
 {- BASE PARTICLES -}
 
 
-pBase : List Float
-pBase =
-    map toFloat (range 0 0)
+cantParticles : Float
+cantParticles = 1
 
 
 type alias ViewportInfo =
@@ -146,6 +145,16 @@ calcFps f =
     { f | frameCount = 0, fps = f.frameCount }
 
 
+didPlayerLose : Model -> Bool
+didPlayerLose { metaInfo, particles } =
+    any
+        (\p ->
+            getY p.p + p.radius > metaInfo.viewport.height ||
+            getY p.p - p.radius < 0 ||
+            getX p.p + p.radius > metaInfo.viewport.width ||
+            getX p.p - p.radius < 0
+        )
+        particles
 
 {- ------------------------------------------------------------------------------------ -}
 {- MAIN -}
@@ -165,6 +174,20 @@ main =
 {- ------------------------------------------------------------------------------------ -}
 {- INIT -}
 
+createInitParticles : Float -> MetaInfo -> List P.Particle
+createInitParticles cant { viewport } =
+    let
+        pBase = map toFloat (range 0 (round (cant - 1)))
+    in
+        map
+            (\x ->
+                P.createParticle
+                    (vec2 x 0)
+                    (vec2 0 1)
+                    mass
+                    (round x)
+            )
+            pBase
 
 init : () -> ( Model, Cmd Msg )
 init _ =
@@ -179,16 +202,7 @@ init _ =
                 , height = 0
                 }
             }
-      , particles =
-            map
-                (\x ->
-                    P.createParticle
-                        (vec2 x 0)
-                        (vec2 0 0.000001)
-                        mass
-                        (round x)
-                )
-                pBase
+      , particles = []
        , gameInfo = { gameState = Playing }
       }
     , Cmd.batch
@@ -220,7 +234,7 @@ update msg model =
                     viewport.width * 0.1
 
                 widthP =
-                    (viewport.width - (2 * marginX)) / (toFloat <| List.length pBase)
+                    (viewport.width - (2 * marginX)) / cantParticles
 
                 getNewX x =
                     marginX + ((x + 0.5) * widthP)
@@ -240,9 +254,13 @@ update msg model =
 
         Frame _ ->
             let
+                newParticles = if (didPlayerLose model)
+                    then createInitParticles cantParticles model.metaInfo
+                    else model.particles
                 newModel =
                     model
                         |> setMetaInfo (increaseFrameCount model.metaInfo)
+                        |> setParticles newParticles
             in
             ( newModel, Cmd.none )
 
