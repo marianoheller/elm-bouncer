@@ -54,7 +54,8 @@ d =
 
 
 cantParticles : Float
-cantParticles = 1
+cantParticles =
+    1
 
 
 type alias ViewportInfo =
@@ -72,6 +73,7 @@ type GameState
     = Win
     | Lose
     | Playing
+    | Loading
 
 
 type alias GameInfo =
@@ -103,6 +105,16 @@ type Msg
     | InitParticlePositions ViewportInfo
     | InitStartTime Time.Posix
     | ParticleClicked Int
+
+
+setGameInfo : GameInfo -> Model -> Model
+setGameInfo gi m =
+    { m | gameInfo = gi }
+
+
+setGameState : GameState -> GameInfo -> GameInfo
+setGameState gs gi =
+    { gi | gameState = gs }
 
 
 setParticles : List P.Particle -> Model -> Model
@@ -149,12 +161,22 @@ didPlayerLose : Model -> Bool
 didPlayerLose { metaInfo, particles } =
     any
         (\p ->
-            getY p.p + p.radius > metaInfo.viewport.height ||
-            getY p.p - p.radius < 0 ||
-            getX p.p + p.radius > metaInfo.viewport.width ||
-            getX p.p - p.radius < 0
+            getY p.p
+                + p.radius
+                > metaInfo.viewport.height
+                || getY p.p
+                - p.radius
+                < 0
+                || getX p.p
+                + p.radius
+                > metaInfo.viewport.width
+                || getX p.p
+                - p.radius
+                < 0
         )
         particles
+
+
 
 {- ------------------------------------------------------------------------------------ -}
 {- MAIN -}
@@ -174,20 +196,23 @@ main =
 {- ------------------------------------------------------------------------------------ -}
 {- INIT -}
 
+
 createInitParticles : Float -> MetaInfo -> List P.Particle
 createInitParticles cant { viewport } =
     let
-        pBase = map toFloat (range 0 (round (cant - 1)))
+        pBase =
+            map toFloat (range 0 (round (cant - 1)))
     in
-        map
-            (\x ->
-                P.createParticle
-                    (vec2 x 0)
-                    (vec2 0 1)
-                    mass
-                    (round x)
-            )
-            pBase
+    map
+        (\x ->
+            P.createParticle
+                (vec2 x 0)
+                (vec2 0 1)
+                mass
+                (round x)
+        )
+        pBase
+
 
 init : () -> ( Model, Cmd Msg )
 init _ =
@@ -203,7 +228,7 @@ init _ =
                 }
             }
       , particles = []
-       , gameInfo = { gameState = Playing }
+      , gameInfo = { gameState = Loading }
       }
     , Cmd.batch
         [ getViewport |> Task.perform (\v -> ViewportInfoUpdate (toViewPortInfo v))
@@ -249,20 +274,40 @@ update msg model =
                                 (\p -> P.setPos (vec2 (getNewX <| getX p.p) heightP) p)
                                 model.particles
                             )
+                        |> setGameInfo (setGameState Playing model.gameInfo)
             in
             ( newModel, Cmd.none )
 
         Frame _ ->
             let
-                newParticles = if (didPlayerLose model)
-                    then createInitParticles cantParticles model.metaInfo
-                    else model.particles
+                newCmd =
+                    if didPlayerLose model then
+                        getViewport |> Task.perform (\v -> InitParticlePositions (toViewPortInfo v))
+
+                    else
+                        Cmd.none
+
+                newParticles =
+                    if didPlayerLose model then
+                        createInitParticles cantParticles model.metaInfo
+
+                    else
+                        model.particles
+
+                newGameState =
+                    if didPlayerLose model then
+                        Loading
+
+                    else
+                        model.gameInfo.gameState
+
                 newModel =
                     model
                         |> setMetaInfo (increaseFrameCount model.metaInfo)
                         |> setParticles newParticles
+                        |> setGameInfo (setGameState newGameState model.gameInfo)
             in
-            ( newModel, Cmd.none )
+            ( newModel, newCmd )
 
         InitStartTime pTime ->
             let
@@ -284,15 +329,19 @@ update msg model =
         Tick20ms pTime ->
             let
                 newModel =
-                    model
-                        |> setParticles
-                            (P.updateWorld
-                                g
-                                d
-                                (Time.posixToMillis pTime - model.metaInfo.currentTime)
-                                model.particles
-                            )
-                        |> setMetaInfo (setCurrentTime (Time.posixToMillis pTime) model.metaInfo)
+                    if model.gameInfo.gameState == Loading then
+                        model
+
+                    else
+                        model
+                            |> setParticles
+                                (P.updateWorld
+                                    g
+                                    d
+                                    (Time.posixToMillis pTime - model.metaInfo.currentTime)
+                                    model.particles
+                                )
+                            |> setMetaInfo (setCurrentTime (Time.posixToMillis pTime) model.metaInfo)
             in
             ( newModel, Cmd.none )
 
@@ -329,7 +378,7 @@ subscriptions model =
 view : Model -> Html Msg
 view model =
     div
-        [ style "width" "100%", style "height" "100%"]
+        [ style "width" "100%", style "height" "100%" ]
         [ viewSvg model
         , viewFPS model.metaInfo.fps
         ]
@@ -350,7 +399,7 @@ viewSvg model =
     impose
         (renderParticles model.metaInfo.frameCountAcc model.particles)
         (renderBackground model.metaInfo |> align topLeft)
-        |> (svgExplicit [ style "width" "100%", style "height" "100%"])
+        |> svgExplicit [ style "width" "100%", style "height" "100%" ]
 
 
 renderBackground : MetaInfo -> Collage msg
